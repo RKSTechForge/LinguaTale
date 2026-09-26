@@ -1,1 +1,41 @@
-pipeline { agent any; environment { IMAGE="ghcr.io/rkstechforge/linguatale"; } stages { stage("Checkout"){steps{checkout scm}} stage("Build API"){steps{sh 'mvn -B -f backend/java-api/pom.xml test package'}} stage("Build AI"){steps{sh 'python3 -m pip install -r ai/linguatale-ai/requirements.txt'}} stage("Docker Build"){steps{sh 'docker build -t "$IMAGE:$BUILD_NUMBER" -t "$IMAGE:latest" -f Dockerfile .'}} stage("Push"){steps{withCredentials([usernamePassword(credentialsId:"GHCR_CREDENTIALS",usernameVariable:"CR_USER",passwordVariable:"CR_TOKEN")]){sh 'echo "$CR_TOKEN" | docker login ghcr.io -u "$CR_USER" --password-stdin && docker push "$IMAGE:$BUILD_NUMBER" && docker push "$IMAGE:latest"'}}} stage("Deploy"){steps{withCredentials([sshUserPrivateKey(credentialsId:"DEPLOY_SSH",keyFileVariable:"KEY",usernameVariable:"USER")]){sh 'ssh -i "$KEY" "$USER@$DEPLOY_HOST" "cd /opt/linguatale && docker compose up -d --build"'}}} } }
+@Library('smartPipeline@main') _
+
+pipeline {
+    agent any
+    stages {
+        stage('Build Java API') {
+            steps {
+                smartBuild(type: 'maven', pom: 'backend/java-api/pom.xml', goals: 'test package')
+            }
+        }
+        stage('Build AI') {
+            steps {
+                smartBuild(type: 'python', requirements: 'ai/linguatale-ai/requirements.txt')
+            }
+        }
+        stage('Docker Build') {
+            steps {
+                smartContainer(image: "ghcr.io/rkstechforge/linguatale:${env.BUILD_NUMBER}", snykScan: false)
+                sh 'docker tag ghcr.io/rkstechforge/linguatale:$BUILD_NUMBER ghcr.io/rkstechforge/linguatale:latest'
+            }
+        }
+        stage('Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'GHCR_CREDENTIALS', usernameVariable: 'CR_USER', passwordVariable: 'CR_TOKEN')]) {
+                    sh '''
+                        echo "$CR_TOKEN" | docker login ghcr.io -u "$CR_USER" --password-stdin
+                        docker push "ghcr.io/rkstechforge/linguatale:$BUILD_NUMBER"
+                        docker push "ghcr.io/rkstechforge/linguatale:latest"
+                    '''
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'DEPLOY_SSH', keyFileVariable: 'KEY', usernameVariable: 'USER')]) {
+                    sh 'ssh -i "$KEY" "$USER@$DEPLOY_HOST" "cd /opt/linguatale && docker compose up -d --build"'
+                }
+            }
+        }
+    }
+}
