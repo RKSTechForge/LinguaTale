@@ -2,7 +2,11 @@
 
 pipeline {
     agent any
-    stages {
+    
+
+    options {
+        timeout(time: 1, unit: 'HOURS')
+    }stages {
         stage('Build Java API') {
             steps {
                 smartBuild(type: 'maven', pom: 'backend/java-api/pom.xml', goals: 'test package')
